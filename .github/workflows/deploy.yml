@@ -25,7 +25,10 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      # No dependency install scripts are needed for the browser build. transformers.js pulls in the
+      # Node-only onnxruntime-node, whose install script tries to download CUDA binaries on Linux
+      # and fails the whole install when that download 404s.
+      - run: npm ci --ignore-scripts
       - run: npm run lint
       - run: npm test
       - run: npm run build
