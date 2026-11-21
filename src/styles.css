@@ -1,0 +1,49 @@
+:root {
+  --bg: #1c1c20;
+  --panel: #2a2a30;
+  --border: #3a3a42;
+  --text: #e8e8ec;
+  --muted: #9a9aa4;
+  --accent: #6d8cff;
+  --keep: #22c55e;
+  --remove: #ef4444;
+  color-scheme: dark;
+  font: 14px/1.4 system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+}
+* { box-sizing: border-box; }
+html, body, #root { margin: 0; height: 100%; background: var(--bg); color: var(--text); }
+.app { display: flex; flex-direction: column; height: 100%; }
+
+.toolbar {
+  display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center;
+  padding: 8px 12px; background: var(--panel); border-bottom: 1px solid var(--border);
+}
+.toolbar section { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.toolbar label { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); }
+.toolbar input[type='range'] { width: 110px; }
+.toolbar input[type='number'] { width: 64px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 3px 6px; }
+
+button, .btn {
+  font: inherit; color: var(--text); background: #34343c; border: 1px solid var(--border);
+  border-radius: 6px; padding: 4px 10px; cursor: pointer; white-space: nowrap;
+}
+button:hover:not(:disabled), .btn:hover { background: #3f3f48; }
+button:disabled { opacity: 0.4; cursor: default; }
+button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.active.keep { background: var(--keep); border-color: var(--keep); }
+button.active.remove { background: var(--remove); border-color: var(--remove); }
+.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.seg { display: inline-flex; }
+.seg button { border-radius: 0; margin-left: -1px; }
+.seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+.seg button:last-child { border-radius: 0 6px 6px 0; }
+.muted { color: var(--muted); }
+
+.viewport { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+.viewport canvas { display: block; touch-action: none; }
+.viewport.empty { display: grid; place-items: center; color: var(--muted); border: 2px dashed var(--border); margin: 16px; border-radius: 12px; }
+
+.statusbar {
+  display: flex; justify-content: space-between; gap: 12px; padding: 5px 12px;
+  background: var(--panel); border-top: 1px solid var(--border); font-size: 13px;
+}

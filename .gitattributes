@@ -1,0 +1,4 @@
+# Model chunks and runtimes must stay byte-identical (the joined model is hash-checked).
+*.onnx binary
+*.onnx.part* binary
+*.wasm binary

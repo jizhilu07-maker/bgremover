@@ -1,0 +1,104 @@
+// Puts everything the browser needs for AI features under public/, so the site never calls
+// huggingface.co or a CDN at runtime. Files over GitHub's 100MB limit are stored as chunks
+// (<file>.part0, .part1, … plus <file>.parts.json); the worker reassembles them (src/chunkedCache.ts).
+//   npm run assets
+//   HF_ENDPOINT=https://hf-mirror.com npm run assets   (when huggingface.co is unreachable)
+import { copyFile, mkdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const endpoint = (process.env.HF_ENDPOINT || 'https://huggingface.co').replace(/\/$/, '');
+
+const MODELS = [
+  {
+    repo: 'onnx-community/BiRefNet_lite-ONNX',
+    dir: 'BiRefNet_lite-ONNX',
+    files: ['config.json', 'preprocessor_config.json', 'onnx/model.onnx'],
+  },
+  {
+    repo: 'Xenova/slimsam-77-uniform',
+    dir: 'slimsam-77-uniform',
+    files: ['config.json', 'preprocessor_config.json', 'onnx/vision_encoder.onnx', 'onnx/prompt_encoder_mask_decoder.onnx'],
+  },
+];
+
+// The WebGPU/JSEP onnxruntime-web build that transformers.js uses; it also runs the WASM backend.
+const ORT_FILES = ['ort-wasm-simd-threaded.jsep.wasm'];
+
+// Below GitHub's hard 100MB per-file limit, with headroom.
+const CHUNK_BYTES = 90 * 1024 * 1024;
+
+const exists = (p) => stat(p).then((s) => s.size > 0, () => false);
+
+async function splitIfLarge(file) {
+  const { size } = await stat(file);
+  if (size <= CHUNK_BYTES) return;
+  const parts = Math.ceil(size / CHUNK_BYTES);
+  for (let i = 0; i < parts; i++) {
+    const end = Math.min(size, (i + 1) * CHUNK_BYTES) - 1;
+    await pipeline(createReadStream(file, { start: i * CHUNK_BYTES, end }), createWriteStream(`${file}.part${i}`));
+  }
+  await writeFile(`${file}.parts.json`, JSON.stringify({ size, parts }));
+  // The whole file must not stay under public/: it would end up in the repo and GitHub rejects it.
+  await unlink(file);
+  console.log(`  split into ${parts} parts`);
+}
+
+async function download(url, dest) {
+  const res = await fetch(url, { redirect: 'follow' });
+  if (!res.ok || !res.body) throw new Error(`${res.status} ${res.statusText} — ${url}`);
+  const total = Number(res.headers.get('content-length')) || 0;
+  let done = 0, lastPct = -1;
+  const progress = new Transform({
+    transform(chunk, _enc, cb) {
+      done += chunk.length;
+      const pct = total ? Math.floor((done / total) * 100) : -1;
+      if (pct !== lastPct && pct % 10 === 0) {
+        lastPct = pct;
+        process.stdout.write(`  ${pct}%`);
+      }
+      cb(null, chunk);
+    },
+  });
+  const tmp = `${dest}.download`;
+  await pipeline(Readable.fromWeb(res.body), progress, createWriteStream(tmp));
+  await rename(tmp, dest);
+  process.stdout.write('\n');
+}
+
+async function main() {
+  const ortSrc = join(root, 'node_modules', 'onnxruntime-web', 'dist');
+  const ortDest = join(root, 'public', 'ort');
+  await mkdir(ortDest, { recursive: true });
+  for (const f of ORT_FILES) await copyFile(join(ortSrc, f), join(ortDest, f));
+  console.log(`ORT runtime -> public/ort (${ORT_FILES.length} files)`);
+
+  for (const m of MODELS) {
+    for (const f of m.files) {
+      const dest = join(root, 'public', 'models', m.dir, f);
+      if (await exists(`${dest}.parts.json`)) {
+        console.log(`skip ${m.dir}/${f} (already split)`);
+        continue;
+      }
+      if (await exists(dest)) {
+        console.log(`have ${m.dir}/${f}`);
+      } else {
+        await mkdir(dirname(dest), { recursive: true });
+        console.log(`download ${m.repo}/${f}`);
+        await download(`${endpoint}/${m.repo}/resolve/main/${f}`, dest);
+      }
+      await splitIfLarge(dest);
+    }
+  }
+  console.log('done');
+}
+
+main().catch((e) => {
+  console.error(`\nfailed: ${e.message}`);
+  console.error('If huggingface.co is unreachable, retry with HF_ENDPOINT=https://hf-mirror.com');
+  process.exit(1);
+});
