@@ -15,9 +15,12 @@ const endpoint = (process.env.HF_ENDPOINT || 'https://huggingface.co').replace(/
 
 const MODELS = [
   {
-    repo: 'onnx-community/BiRefNet_lite-ONNX',
-    dir: 'BiRefNet_lite-ONNX',
-    files: ['config.json', 'preprocessor_config.json', 'onnx/model.onnx'],
+    // BiRefNet-lite with the graph patched to run fully on WebGPU (same weights, fp16). The
+    // onnx-community export falls back to the CPU for its deform-conv nodes and runs out of the
+    // 32-bit wasm heap; see the repo's README.
+    repo: 'jiabins0303/birefnet-lite-1024-webgpu',
+    dir: 'birefnet-lite-1024-webgpu',
+    files: ['config.json', 'preprocessor_config.json', 'onnx/model_fp16.onnx'],
   },
   {
     repo: 'Xenova/slimsam-77-uniform',

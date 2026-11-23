@@ -25,7 +25,7 @@ if (env.backends.onnx.wasm) {
   env.backends.onnx.wasm.wasmPaths = { wasm: `${ASSET_BASE}ort/ort-wasm-simd-threaded.jsep.wasm` };
 }
 
-const BIREFNET = 'BiRefNet_lite-ONNX';
+const BIREFNET = 'birefnet-lite-1024-webgpu';
 const SAM = 'slimsam-77-uniform';
 
 // Wraps the browser cache so models split into <100MB chunks are reassembled transparently.
@@ -59,19 +59,30 @@ export type WorkerMessage =
   | { id: number; ok: true; prob?: Float32Array; probWidth?: number; probHeight?: number }
   | { id: number; ok: false; error: string };
 
-/** Sentinel error; modelClient turns it into a user-facing message. */
+/** Sentinel errors; modelClient turns them into user-facing messages. */
 const NO_WEBGPU = 'NO_WEBGPU';
+const GPU_UNSUPPORTED = 'GPU_UNSUPPORTED';
 
 const post = (msg: WorkerMessage, transfer: Transferable[] = []) => self.postMessage(msg, { transfer });
 
-const device: Promise<Device> = (async () => {
+interface MinimalAdapter {
+  features: { has(name: string): boolean };
+  limits: { maxStorageBuffersPerShaderStage: number };
+}
+
+const gpu: Promise<{ device: Device; canRunBirefnet: boolean }> = (async () => {
   try {
-    const gpu = (navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } }).gpu;
-    return gpu && (await gpu.requestAdapter()) ? 'webgpu' : 'wasm';
+    const nav = navigator as Navigator & { gpu?: { requestAdapter(): Promise<MinimalAdapter | null> } };
+    const adapter = await nav.gpu?.requestAdapter();
+    if (!adapter) return { device: 'wasm', canRunBirefnet: false };
+    // The BiRefNet graph is fp16 and was patched to need at most 8 storage buffers per shader.
+    const canRunBirefnet = adapter.features.has('shader-f16') && adapter.limits.maxStorageBuffersPerShaderStage >= 8;
+    return { device: 'webgpu', canRunBirefnet };
   } catch {
-    return 'wasm';
+    return { device: 'wasm', canRunBirefnet: false };
   }
 })();
+const device = gpu.then((g) => g.device);
 
 function progressFor(model: 'birefnet' | 'sam') {
   const files = new Map<string, { loaded: number; total: number }>();
@@ -87,10 +98,19 @@ function progressFor(model: 'birefnet' | 'sam') {
 let birefnet: Promise<{ model: PreTrainedModel; processor: Processor }> | null = null;
 function loadBirefnet() {
   birefnet ??= (async () => {
-    // The ONNX export has a fixed 1024x1024 input and its activations exceed the WASM heap, and a
-    // failed run leaves the shared ORT runtime unusable (SAM breaks too). So never try it on CPU.
-    if ((await device) !== 'webgpu') throw new Error(NO_WEBGPU);
-    const model = await AutoModel.from_pretrained(BIREFNET, { device: 'webgpu', dtype: 'fp32', progress_callback: progressFor('birefnet') });
+    // WebGPU only: on the WASM backend this model exceeds the 32-bit heap, and a failed run leaves
+    // the shared ORT runtime unusable (SAM breaks too). Check before downloading 115MB.
+    const g = await gpu;
+    if (g.device !== 'webgpu') throw new Error(NO_WEBGPU);
+    if (!g.canRunBirefnet) throw new Error(GPU_UNSUPPORTED);
+    const model = await AutoModel.from_pretrained(BIREFNET, {
+      device: 'webgpu',
+      // The file is already fp16; 'fp32' plus an explicit file name stops transformers.js from
+      // appending its own dtype suffix to the file name.
+      dtype: 'fp32',
+      model_file_name: 'model_fp16',
+      progress_callback: progressFor('birefnet'),
+    });
     post({ type: 'device', device: 'webgpu' });
     return { model, processor: await AutoProcessor.from_pretrained(BIREFNET, {}) };
   })().catch((e) => { birefnet = null; throw e; });

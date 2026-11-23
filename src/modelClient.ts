@@ -1,5 +1,11 @@
 import type { WorkerMessage, WorkerRequest } from './model.worker';
 
+/** Messages for the worker's sentinel errors. */
+const USER_MESSAGES: Record<string, string> = {
+  NO_WEBGPU: '这个浏览器没有可用的 WebGPU（显卡加速），AI 去背景无法运行。请用有独立或集成显卡的电脑、最新版 Chrome/Edge 打开，或改用「智能点选」点击背景去除',
+  GPU_UNSUPPORTED: '这块显卡不满足 AI 去背景的要求（需要支持 fp16 计算）。请更新显卡驱动和浏览器后重试，或改用「智能点选」点击背景去除',
+};
+
 type Pending = { resolve: (m: Extract<WorkerMessage, { ok: true }>) => void; reject: (e: Error) => void };
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 
@@ -46,9 +52,7 @@ export class ModelClient {
       if (!p) return;
       this.pending.delete(m.id);
       if (m.ok) p.resolve(m);
-      else if (m.error === 'NO_WEBGPU') {
-        p.reject(new Error('这个浏览器没有可用的 WebGPU，AI 去背景无法运行（CPU 模式下模型内存不够）。请用最新版 Chrome/Edge，或改用「智能点选」点击背景去除'));
-      } else p.reject(new Error(m.error));
+      else p.reject(new Error(USER_MESSAGES[m.error] ?? m.error));
     };
   }
 
