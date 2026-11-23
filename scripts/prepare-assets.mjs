@@ -3,10 +3,12 @@
 // (<file>.part0, .part1, … plus <file>.parts.json); the worker reassembles them (src/chunkedCache.ts).
 //   npm run assets
 //   HF_ENDPOINT=https://hf-mirror.com npm run assets   (when huggingface.co is unreachable)
+// Converting BiRefNet to fp32 needs Python with `pip install onnx numpy` (set PYTHON to pick one).
 import { copyFile, mkdir, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { Readable, Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
+import { execFileSync } from 'node:child_process';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -15,12 +17,14 @@ const endpoint = (process.env.HF_ENDPOINT || 'https://huggingface.co').replace(/
 
 const MODELS = [
   {
-    // BiRefNet-lite with the graph patched to run fully on WebGPU (same weights, fp16). The
+    // BiRefNet-lite with the graph patched to run fully on WebGPU (same weights). The
     // onnx-community export falls back to the CPU for its deform-conv nodes and runs out of the
-    // 32-bit wasm heap; see the repo's README.
+    // 32-bit wasm heap; see the repo's README. It is published in fp16 only, which overflows to an
+    // all-NaN output on some GPUs, so it is converted to fp32 here.
     repo: 'jiabins0303/birefnet-lite-1024-webgpu',
     dir: 'birefnet-lite-1024-webgpu',
     files: ['config.json', 'preprocessor_config.json', 'onnx/model_fp16.onnx'],
+    toFp32: { 'onnx/model_fp16.onnx': 'onnx/model.onnx' },
   },
   {
     repo: 'Xenova/slimsam-77-uniform',
@@ -82,17 +86,26 @@ async function main() {
 
   for (const m of MODELS) {
     for (const f of m.files) {
-      const dest = join(root, 'public', 'models', m.dir, f);
+      const fp32 = m.toFp32?.[f];
+      const dest = join(root, 'public', 'models', m.dir, fp32 ?? f);
       if (await exists(`${dest}.parts.json`)) {
-        console.log(`skip ${m.dir}/${f} (already split)`);
+        console.log(`skip ${m.dir}/${fp32 ?? f} (already split)`);
         continue;
       }
       if (await exists(dest)) {
-        console.log(`have ${m.dir}/${f}`);
+        console.log(`have ${m.dir}/${fp32 ?? f}`);
       } else {
-        await mkdir(dirname(dest), { recursive: true });
-        console.log(`download ${m.repo}/${f}`);
-        await download(`${endpoint}/${m.repo}/resolve/main/${f}`, dest);
+        const src = join(root, 'public', 'models', m.dir, f);
+        await mkdir(dirname(src), { recursive: true });
+        if (!(await exists(src))) {
+          console.log(`download ${m.repo}/${f}`);
+          await download(`${endpoint}/${m.repo}/resolve/main/${f}`, src);
+        }
+        if (fp32) {
+          console.log(`convert ${f} -> ${fp32}`);
+          execFileSync(process.env.PYTHON || 'python', [join(root, 'scripts', 'fp16_to_fp32.py'), src, dest], { stdio: 'inherit' });
+          await unlink(src);
+        }
       }
       await splitIfLarge(dest);
     }

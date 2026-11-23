@@ -3,7 +3,8 @@ import type { WorkerMessage, WorkerRequest } from './model.worker';
 /** Messages for the worker's sentinel errors. */
 const USER_MESSAGES: Record<string, string> = {
   NO_WEBGPU: '这个浏览器没有可用的 WebGPU（显卡加速），AI 去背景无法运行。请用有独立或集成显卡的电脑、最新版 Chrome/Edge 打开，或改用「智能点选」点击背景去除',
-  GPU_UNSUPPORTED: '这块显卡不满足 AI 去背景的要求（需要支持 fp16 计算）。请更新显卡驱动和浏览器后重试，或改用「智能点选」点击背景去除',
+  GPU_UNSUPPORTED: '这块显卡不满足 AI 去背景的要求。请更新显卡驱动和浏览器后重试，或改用「智能点选」点击背景去除',
+  GPU_BAD_OUTPUT: '显卡算出的结果无效，AI 去背景没有生效（图片未改动）。请更新显卡驱动和浏览器后重试，或改用「智能点选」点击背景去除',
 };
 
 type Pending = { resolve: (m: Extract<WorkerMessage, { ok: true }>) => void; reject: (e: Error) => void };

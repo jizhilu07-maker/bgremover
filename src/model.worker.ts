@@ -62,11 +62,11 @@ export type WorkerMessage =
 /** Sentinel errors; modelClient turns them into user-facing messages. */
 const NO_WEBGPU = 'NO_WEBGPU';
 const GPU_UNSUPPORTED = 'GPU_UNSUPPORTED';
+const GPU_BAD_OUTPUT = 'GPU_BAD_OUTPUT';
 
 const post = (msg: WorkerMessage, transfer: Transferable[] = []) => self.postMessage(msg, { transfer });
 
 interface MinimalAdapter {
-  features: { has(name: string): boolean };
   limits: { maxStorageBuffersPerShaderStage: number };
 }
 
@@ -75,8 +75,8 @@ const gpu: Promise<{ device: Device; canRunBirefnet: boolean }> = (async () => {
     const nav = navigator as Navigator & { gpu?: { requestAdapter(): Promise<MinimalAdapter | null> } };
     const adapter = await nav.gpu?.requestAdapter();
     if (!adapter) return { device: 'wasm', canRunBirefnet: false };
-    // The BiRefNet graph is fp16 and was patched to need at most 8 storage buffers per shader.
-    const canRunBirefnet = adapter.features.has('shader-f16') && adapter.limits.maxStorageBuffersPerShaderStage >= 8;
+    // The BiRefNet graph was patched to need at most 8 storage buffers per shader.
+    const canRunBirefnet = adapter.limits.maxStorageBuffersPerShaderStage >= 8;
     return { device: 'webgpu', canRunBirefnet };
   } catch {
     return { device: 'wasm', canRunBirefnet: false };
@@ -99,16 +99,14 @@ let birefnet: Promise<{ model: PreTrainedModel; processor: Processor }> | null =
 function loadBirefnet() {
   birefnet ??= (async () => {
     // WebGPU only: on the WASM backend this model exceeds the 32-bit heap, and a failed run leaves
-    // the shared ORT runtime unusable (SAM breaks too). Check before downloading 115MB.
+    // the shared ORT runtime unusable (SAM breaks too). Check before downloading 225MB.
     const g = await gpu;
     if (g.device !== 'webgpu') throw new Error(NO_WEBGPU);
     if (!g.canRunBirefnet) throw new Error(GPU_UNSUPPORTED);
     const model = await AutoModel.from_pretrained(BIREFNET, {
       device: 'webgpu',
-      // The file is already fp16; 'fp32' plus an explicit file name stops transformers.js from
-      // appending its own dtype suffix to the file name.
+      // fp32 on purpose: the fp16 export overflows to an all-NaN output on some GPUs.
       dtype: 'fp32',
-      model_file_name: 'model_fp16',
       progress_callback: progressFor('birefnet'),
     });
     post({ type: 'device', device: 'webgpu' });
@@ -156,6 +154,8 @@ async function handle(req: WorkerRequest): Promise<void> {
     const prob = (output_image as Tensor).sigmoid();
     const [ph, pw] = prob.dims.slice(-2);
     const data = new Float32Array(prob.data as Float32Array);
+    // A broken GPU result would otherwise show up as a silently empty (fully transparent) mask.
+    if (data.some(Number.isNaN)) throw new Error(GPU_BAD_OUTPUT);
     post({ id: req.id, ok: true, prob: data, probWidth: pw, probHeight: ph }, [data.buffer]);
   } else if (req.type === 'samEncode') {
     samState = null;
