@@ -33,8 +33,8 @@ const MODELS = [
   },
 ];
 
-// The WebGPU/JSEP onnxruntime-web build that transformers.js uses; it also runs the WASM backend.
-const ORT_FILES = ['ort-wasm-simd-threaded.jsep.wasm'];
+// The native-WebGPU onnxruntime-web build (see the alias in vite.config.ts); it also runs the WASM backend.
+const ORT_FILES = ['ort-wasm-simd-threaded.asyncify.wasm'];
 
 // Below GitHub's hard 100MB per-file limit, with headroom.
 const CHUNK_BYTES = 90 * 1024 * 1024;

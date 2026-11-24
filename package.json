@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@huggingface/transformers": "^3.8.1",
+    "onnxruntime-web": "1.31.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
@@ -29,5 +30,9 @@
     "typescript-eslint": "^8.73.0",
     "vite": "^8.3.8",
     "vitest": "^5.1.1"
+  },
+  "overrides": {
+    "onnxruntime-web": "$onnxruntime-web",
+    "onnxruntime-common": "1.31.1"
   }
 }

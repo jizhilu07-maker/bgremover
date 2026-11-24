@@ -22,7 +22,7 @@ env.localModelPath = `${ASSET_BASE}models/`;
 // Only the .wasm is overridden: the JS glue is already bundled in onnxruntime-web, and pointing
 // ORT at a separate .mjs under /public makes Vite refuse the dynamic import.
 if (env.backends.onnx.wasm) {
-  env.backends.onnx.wasm.wasmPaths = { wasm: `${ASSET_BASE}ort/ort-wasm-simd-threaded.jsep.wasm` };
+  env.backends.onnx.wasm.wasmPaths = { wasm: `${ASSET_BASE}ort/ort-wasm-simd-threaded.asyncify.wasm` };
 }
 
 const BIREFNET = 'birefnet-lite-1024-webgpu';
