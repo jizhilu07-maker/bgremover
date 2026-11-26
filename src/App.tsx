@@ -6,7 +6,7 @@ import { sampleColor, selectByColor } from './mask/color';
 import { morph, refineWithGuide, snapToColors } from './mask/edge';
 import { ModelClient } from './modelClient';
 import { encodePng } from './png';
-import { Toolbar, type AutoMode, type Settings } from './Toolbar';
+import { Inspector, OpenButton, TopBar, type AutoMode, type Settings } from './Toolbar';
 import { Viewport } from './Viewport';
 
 const DEFAULT_SETTINGS: Settings = {
@@ -44,7 +44,7 @@ export function App() {
   const [editor, setEditor] = useState<Editor | null>(null);
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState('拖入、粘贴或打开一张图片');
+  const [status, setStatus] = useState('');
   const [device, setDevice] = useState('');
   const [fileName, setFileName] = useState('image');
   const [, setHistoryVersion] = useState(0);
@@ -115,7 +115,7 @@ export function App() {
           const a = new Uint8Array(width * height);
           for (let i = 0; i < a.length; i++) a[i] = rgba[i * 4 + 3];
           ed.commit(a);
-          setStatus('图片自带透明通道，已直接沿用。需要重新处理请点"自动去背景"');
+          setStatus('图片自带透明通道，已直接沿用。需要重新处理请点“去背景”里的“自动”');
         } else {
           await runAuto(ed, 'auto');
         }
@@ -220,7 +220,9 @@ export function App() {
     };
   }, [editor, busy, loadFile]);
 
-  const maskOp = (fn: (a: Uint8Array, w: number, h: number) => Uint8Array) => () => {
+  const openFile = (f: File) => void loadFile(f, f.name);
+
+  const maskOp =(fn: (a: Uint8Array, w: number, h: number) => Uint8Array) => () => {
     if (editor) editor.commit(fn(editor.alpha, editor.width, editor.height));
   };
 
@@ -234,42 +236,62 @@ export function App() {
         if (f) void loadFile(f, f.name);
       }}
     >
-      <Toolbar
+      <TopBar
+        fileName={editor ? fileName : null}
+        busy={busy}
+        canUndo={!!editor?.canUndo}
+        canRedo={!!editor?.canRedo}
+        onOpen={openFile}
+        onExport={exportPng}
+        onUndo={() => editor?.undo()}
+        onRedo={() => editor?.redo()}
+      />
+      <main className="stage">
+        {editor ? (
+          <Viewport
+            editor={editor}
+            tool={settings.tool}
+            keep={settings.keep}
+            brushSize={settings.brushSize}
+            previewBg={settings.previewBg}
+            onPick={onPick}
+          />
+        ) : (
+          <div className="empty">
+            <div className="empty-card">
+              <svg className="empty-icon" viewBox="0 0 48 48" aria-hidden="true">
+                <rect x="6" y="9" width="36" height="30" rx="6" />
+                <circle cx="17" cy="19" r="3.5" />
+                <path d="m8 35 10-10 7 7 5-5 10 10" />
+              </svg>
+              <h1>去除图片背景</h1>
+              <p>所有处理都在你的浏览器里完成，图片不会上传</p>
+              <OpenButton className="btn primary large" onOpen={openFile}>选择图片</OpenButton>
+              <p className="hint">或把图片拖到这里，也可以按 Ctrl+V 粘贴</p>
+            </div>
+          </div>
+        )}
+        <div className={`status ${status ? '' : 'hidden'}`} role="status">
+          {busy && <span className="spinner" aria-hidden="true" />}
+          <span className="status-text">{status}</span>
+          {editor && (
+            <span className="status-meta">
+              {editor.width}×{editor.height}
+              {device && ` · ${device}`}
+            </span>
+          )}
+        </div>
+      </main>
+      <Inspector
         settings={settings}
         onChange={change}
         hasImage={!!editor}
         busy={busy}
-        canUndo={!!editor?.canUndo}
-        canRedo={!!editor?.canRedo}
-        onOpen={(f) => void loadFile(f, f.name)}
         onAuto={(m) => editor && void runAuto(editor, m)}
-        onExport={exportPng}
-        onUndo={() => editor?.undo()}
-        onRedo={() => editor?.redo()}
         onIslands={maskOp((a, w, h) => removeIslands(a, w, h, settings.minArea))}
         onHoles={maskOp((a, w, h) => fillHoles(a, w, h, settings.minArea))}
         onMorph={(grow) => maskOp((a, w, h) => morph(a, w, h, grow))()}
       />
-      {editor ? (
-        <Viewport
-          editor={editor}
-          tool={settings.tool}
-          keep={settings.keep}
-          brushSize={settings.brushSize}
-          previewBg={settings.previewBg}
-          onPick={onPick}
-        />
-      ) : (
-        <div className="viewport empty">拖入、粘贴（Ctrl+V）或点击"打开图片"</div>
-      )}
-      <div className="statusbar">
-        <span>{busy ? '⏳ ' : ''}{status}</span>
-        <span className="muted">
-          {editor && `${editor.width}×${editor.height}`}
-          {device && ` · ${device}`}
-          {' · 空格+拖动平移，滚轮缩放，X 切换去除/保留'}
-        </span>
-      </div>
     </div>
   );
 }

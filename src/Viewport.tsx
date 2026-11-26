@@ -78,6 +78,14 @@ export function Viewport(props: Props) {
     const pointer = { x: 0, y: 0, inside: false };
     let checker: CanvasPattern | null = null;
     let frame = 0;
+    // Cached rather than read per frame: getComputedStyle forces a style recalc on every draw.
+    const readBackdrop = () => getComputedStyle(wrap).getPropertyValue('--canvas-bg').trim() || '#808080';
+    let backdrop = readBackdrop();
+    const scheme = window.matchMedia('(prefers-color-scheme: dark)');
+    const onScheme = () => {
+      backdrop = readBackdrop();
+      draw();
+    };
 
     const draw = () => {
       cancelAnimationFrame(frame);
@@ -85,7 +93,7 @@ export function Viewport(props: Props) {
         const dpr = window.devicePixelRatio || 1;
         const cw = canvas.width / dpr, ch = canvas.height / dpr;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        ctx.fillStyle = '#26262b';
+        ctx.fillStyle = backdrop;
         ctx.fillRect(0, 0, cw, ch);
         const bg = propsRef.current.previewBg;
         const ix = view.x, iy = view.y, iw = w * view.zoom, ih = h * view.zoom;
@@ -229,7 +237,9 @@ export function Viewport(props: Props) {
     canvas.addEventListener('contextmenu', onContextMenu);
     window.addEventListener('keydown', onKey);
     window.addEventListener('keyup', onKey);
+    scheme.addEventListener('change', onScheme);
     return () => {
+      scheme.removeEventListener('change', onScheme);
       cancelAnimationFrame(frame);
       ro.disconnect();
       unsubscribe();
